@@ -190,10 +190,10 @@ class EnvironmentVariables:
 
         # ElasticSearch url
         if self._environment_variables_dict.get('elasticsearch_password', ''):
-            self._environment_variables_dict['elasticsearch_url'] = f"http://{self._environment_variables_dict.get('elasticsearch_user', '')}:{self._environment_variables_dict.get('elasticsearch_password', '')}@{self._environment_variables_dict.get('elasticsearch', '')}:{self._environment_variables_dict.get('elasticsearch_port', '')}"
+            self._environment_variables_dict['elasticsearch_url'] = f"https://{self._environment_variables_dict.get('elasticsearch_user', '')}:{self._environment_variables_dict.get('elasticsearch_password', '')}@{self._environment_variables_dict.get('elasticsearch', '')}:{self._environment_variables_dict.get('elasticsearch_port', '')}"
         else:
             if self._environment_variables_dict['elasticsearch'] and self._environment_variables_dict.get('elasticsearch_port', ''):
-                self._environment_variables_dict['elasticsearch_url'] = f"http://{self._environment_variables_dict.get('elasticsearch', '')}:{self._environment_variables_dict.get('elasticsearch_port', '')}"
+                self._environment_variables_dict['elasticsearch_url'] = f"https://{self._environment_variables_dict.get('elasticsearch', '')}:{self._environment_variables_dict.get('elasticsearch_port', '')}"
             else:
                 self._environment_variables_dict['elasticsearch_url'] = ''
 

@@ -28,9 +28,19 @@ class ElasticSearchOperations:
         self.__es_user = es_user
         self.__es_password = es_password
         self.__timeout = timeout
+
+        import ssl
+        from elasticsearch.connection import create_ssl_context
+
+        ssl_context = create_ssl_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        import urllib3
+        urllib3.disable_warnings()
+
         if self.__es_password:
-            self.__es_url = f"http://{self.__es_user}:{self.__es_password}@{self.__es_host}:{self.__es_port}"
-            self.__es = Elasticsearch([self.__es_url])
+            self.__es_url = f"https://{self.__es_user}:{self.__es_password}@{self.__es_host}:{self.__es_port}"
+            self.__es = Elasticsearch([self.__es_url], ssl_context=ssl_context)
         else:
             if self.__es_port:
                 self.__es = Elasticsearch([{'host': self.__es_host, 'port': self.__es_port}])
