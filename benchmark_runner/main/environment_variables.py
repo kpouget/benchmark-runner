@@ -23,19 +23,19 @@ class EnvironmentVariables:
         self._environment_variables_dict['run_artifacts'] = os.environ.get('RUN_ARTIFACTS', '/tmp/benchmark-runner-run-artifacts')
 
         # dynamic parameters - configure for local run
-        self._environment_variables_dict['workload'] = os.environ.get('WORKLOAD', '')
-        self._environment_variables_dict['kubeadmin_password'] = os.environ.get('KUBEADMIN_PASSWORD', '')
+        self._environment_variables_dict['workload'] = os.environ.get('WORKLOAD', 'vdbench_pod')
+        self._environment_variables_dict['kubeadmin_password'] = os.environ.get('KUBEADMIN_PASSWORD', 'Z43iN-K3eDk-GXJ5i-VPVg8')
 
         # PIN=node selector
         self._environment_variables_dict['pin_node_benchmark_operator'] = os.environ.get('PIN_NODE_BENCHMARK_OPERATOR', '')
-        self._environment_variables_dict['pin_node1'] = os.environ.get('PIN_NODE1', '')
+        self._environment_variables_dict['pin_node1'] = os.environ.get('PIN_NODE1', 'ip-10-0-136-254.eu-central-1.compute.internal')
         self._environment_variables_dict['pin_node2'] = os.environ.get('PIN_NODE2', '')
 
         # ElasticSearch
-        self._environment_variables_dict['elasticsearch'] = os.environ.get('ELASTICSEARCH', '')
-        self._environment_variables_dict['elasticsearch_port'] = os.environ.get('ELASTICSEARCH_PORT', '')
-        self._environment_variables_dict['elasticsearch_user'] = os.environ.get('ELASTICSEARCH_USER', '')
-        self._environment_variables_dict['elasticsearch_password'] = os.environ.get('ELASTICSEARCH_PASSWORD', '')
+        self._environment_variables_dict['elasticsearch'] = os.environ.get('ELASTICSEARCH', 'elasticsearch-sample-elastic-search.apps.kpouget-20220215.psap.aws.rhperfscale.org')
+        self._environment_variables_dict['elasticsearch_port'] = os.environ.get('ELASTICSEARCH_PORT', '443')
+        self._environment_variables_dict['elasticsearch_user'] = os.environ.get('ELASTICSEARCH_USER', 'elastic')
+        self._environment_variables_dict['elasticsearch_password'] = os.environ.get('ELASTICSEARCH_PASSWORD', 'E8h5sZWzz653KPO8efo4G655')
 
         # default parameter - change only if needed
         # Parameters below related to 'run_workload()'
@@ -63,7 +63,7 @@ class EnvironmentVariables:
             self._environment_variables_dict['namespace'] = 'benchmark-operator'
 
         # run workload with ocs pvc True/False. True=OCS, False=Ephemeral
-        self._environment_variables_dict['ocs_pvc'] = os.environ.get('OCS_PVC', 'True')
+        self._environment_variables_dict['ocs_pvc'] = os.environ.get('OCS_PVC', 'False')
         # Workloads that required OCS
         self._environment_variables_dict['workloads_ocs_pvc'] = ['vdbench', 'hammerdb']
         # This parameter get from Test_CI.yml file
@@ -86,9 +86,9 @@ class EnvironmentVariables:
         # Benchmark runner local run artifacts path with time stamp format
         self._environment_variables_dict['run_artifacts_path'] = os.path.join(self._environment_variables_dict['run_artifacts'], f"{self._environment_variables_dict['workload'].replace('_', '-')}-{self._environment_variables_dict['time_stamp_format']}")
         # None(Default)/ 'True' to save local(/tmp) artifacts files
-        self._environment_variables_dict['save_artifacts_local'] = os.environ.get('SAVE_ARTIFACTS_LOCAL', None)
+        self._environment_variables_dict['save_artifacts_local'] = os.environ.get('SAVE_ARTIFACTS_LOCAL', True)
         # None/ 'True'(Default) to enable prometheus snapshot
-        self._environment_variables_dict['enable_prometheus_snapshot'] = os.environ.get('ENABLE_PROMETHEUS_SNAPSHOT', 'True')
+        self._environment_variables_dict['enable_prometheus_snapshot'] = os.environ.get('ENABLE_PROMETHEUS_SNAPSHOT', True)
         # end dynamic parameters - configure for local run
         ##################################################################################################
 
