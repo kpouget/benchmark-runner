@@ -9,6 +9,7 @@ datetime_format = '%Y-%m-%d %H:%M:%S'
 
 
 def logger_time_stamp(method):
+    return method
     """
     This method log every method with its parameters
     """
