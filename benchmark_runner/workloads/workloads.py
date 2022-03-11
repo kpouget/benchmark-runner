@@ -37,9 +37,11 @@ class Workloads(WorkloadsOperations):
         initialize_workload()
 
         # extract workload module and class
+        success = True
         for cls in inspect.getmembers(workload_module, inspect.isclass):
             if workload.replace('_', '').lower() == cls[0].lower():
-                cls[1]().run()
+                if cls[1]().run() == False:
+                    success = False
 
         try:
             _finalize_workload = getattr(workload_module, "finalize_workload")
@@ -48,3 +50,5 @@ class Workloads(WorkloadsOperations):
             print(f"WARNING: {workload} module has no finalize_workload method. Using the default one.")
             finalize_workload = self.finalize_workload
         finalize_workload()
+
+        return success
