@@ -1,0 +1,7 @@
+metadata:
+  name: mpi-benchmark
+template_data:
+  shared:
+  run_type:
+    default:
+      # from CLI args
