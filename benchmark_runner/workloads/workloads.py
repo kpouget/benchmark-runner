@@ -22,12 +22,29 @@ class Workloads(WorkloadsOperations):
         The method run workload
         :return:
         """
-        self.initialize_workload()
         # kata use pod module - replace kata to pod
         workload = self._workload.replace('kata', 'pod')
-        # extract workload module and class
+        # load the workload module before doing anything else (in case it fails)
         workload_module = importlib.import_module(f'benchmark_runner.workloads.{workload}')
+
+        try:
+            _initialize_workload = getattr(workload_module, "initialize_workload")
+            initialize_workload = lambda: _initialize_workload(self)
+        except AttributeError:
+            print(f"WARNING: {workload} module has no initialize_workload method. Using the default one.")
+            initialize_workload = self.initialize_workload
+
+        initialize_workload()
+
+        # extract workload module and class
         for cls in inspect.getmembers(workload_module, inspect.isclass):
             if workload.replace('_', '').lower() == cls[0].lower():
                 cls[1]().run()
-        self.finalize_workload()
+
+        try:
+            _finalize_workload = getattr(workload_module, "finalize_workload")
+            finalize_workload = lambda: _finalize_workload(self)
+        except AttributeError:
+            print(f"WARNING: {workload} module has no finalize_workload method. Using the default one.")
+            finalize_workload = self.finalize_workload
+        finalize_workload()
