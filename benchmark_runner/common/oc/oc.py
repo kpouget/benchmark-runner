@@ -6,8 +6,7 @@ from typeguard import typechecked
 from benchmark_runner.common.logger.logger_time_stamp import logger_time_stamp, logger
 from benchmark_runner.common.oc.oc_exceptions import PodNotCreateTimeout, PodNotInitializedTimeout, PodNotReadyTimeout, \
     PodNotCompletedTimeout, PodTerminateTimeout, PodNameNotExist, LoginFailed, VMNotCreateTimeout, VMTerminateTimeout, \
-    YAMLNotExist, VMNameNotExist, VMNotInitializedTimeout, VMNotReadyTimeout, VMNotCompletedTimeout, \
-    OCPResourceNotCreateTimeout, KataInstallationFailed, ExecFailed, PodFailed
+    YAMLNotExist, VMNameNotExist, VMNotInitializedTimeout, VMNotReadyTimeout, VMNotCompletedTimeout, ExecFailed, PodFailed
 from benchmark_runner.common.ssh.ssh import SSH
 from benchmark_runner.main.environment_variables import environment_variables
 
@@ -43,12 +42,12 @@ class OC(SSH):
         """
         return self.run("oc get csv -n openshift-cnv $(oc get csv -n openshift-cnv --no-headers | awk '{ print $1; }') -ojsonpath='{.spec.version}'")
 
-    def get_ocs_version(self):
+    def get_odf_version(self):
         """
-        This method return ocs version
+        This method return odf version
         :return:
         """
-        return self.run("oc get csv -n openshift-storage $(oc get csv -n openshift-storage --no-headers | awk '{ print $1; }') -ojsonpath='{.spec.version}' ")
+        return self.run("oc get csv -n openshift-storage -ojsonpath='{.items[0].spec.labels.full_version}'")
 
     def get_kata_version(self):
         """
@@ -57,11 +56,25 @@ class OC(SSH):
         """
         return self.run("oc get csv -n openshift-sandboxed-containers-operator $(oc get csv -n openshift-sandboxed-containers-operator --no-headers | awk '{ print $1; }') -ojsonpath='{.spec.version}' ")
 
+    def _get_kata_default_channel(self):
+        """
+        Retrieve the default channel for Kata
+        """
+        return self.run("oc get packagemanifest -n openshift-marketplace sandboxed-containers-operator -ojsonpath='{.status.defaultChannel}'")
+
+    def _get_kata_default_channel_field(self, channel_field: str):
+        """
+        Retrieve a field from the packagemanifest for the default Kata channel
+        """
+        default_channel = f'"{self._get_kata_default_channel()}"'
+        command=f"oc get packagemanifest -n openshift-marketplace sandboxed-containers-operator -ojson | jq -r '[foreach .status.channels[] as $channel ([[],[]];0; (if ($channel.name == {default_channel}) then $channel.{channel_field} else null end))] | flatten | map (select (. != null))[]'"
+        return self.run(command)
+
     def _get_kata_csv(self):
         """
         Retrieve the CSV of the sandboxed containers operator for installation"
         """
-        return self.run("oc get packagemanifest -n openshift-marketplace sandboxed-containers-operator -ojsonpath='{.status.channels[0].currentCSV}'")
+        return self._get_kata_default_channel_field("currentCSV")
 
     def _get_kata_catalog_source(self):
         """
@@ -73,13 +86,13 @@ class OC(SSH):
         """
         Retrieve the channel of the sandboxed containers operator for installation"
         """
-        return self.run("oc get packagemanifest -n openshift-marketplace sandboxed-containers-operator -ojsonpath='{.status.channels[0].name}'")
+        return self._get_kata_default_channel_field("name")
 
     def _get_kata_namespace(self):
         """
         Retrieve the namespace of the sandboxed containers operator for installation"
         """
-        return self.run(r"oc get packagemanifest -n openshift-marketplace sandboxed-containers-operator -ojsonpath='{.status.channels[0].currentCSVDesc.annotations.operatorframework\.io/suggested-namespace}'")
+        return self._get_kata_default_channel_field('currentCSVDesc.annotations."operatorframework.io/suggested-namespace"')
 
     @typechecked
     def populate_additional_template_variables(self, env: dict):
@@ -101,9 +114,9 @@ class OC(SSH):
             return True
         return False
 
-    def is_ocs_installed(self):
+    def is_odf_installed(self):
         """
-        This method check if ocs operator is installed
+        This method check if odf operator is installed
         :return:
         """
         verify_cmd = "oc get csv -n openshift-storage -ojsonpath='{.items[0].status.phase}'"
@@ -145,15 +158,27 @@ class OC(SSH):
         short_uuid = uuids[0]
         return short_uuid
 
+    def get_num_active_nodes(self):
+        """
+        This method return the number of active nodes
+        :return:
+        """
+        # count the number of active master/worker nodes
+        if self.get_worker_nodes():
+            count_nodes = len(self.get_worker_nodes().split())
+        else:
+            count_nodes = len(self.get_master_nodes().split())
+        return count_nodes
+
     @typechecked
-    def _create_async(self, yaml: str):
+    def _create_async(self, yaml: str, is_check: bool = False):
         """
         This method create yaml in async
         :param yaml:
         :return:
         """
         if os.path.isfile(yaml):
-            return self.run(f'oc create -f {yaml}')
+            return self.run(f'oc create -f {yaml}', is_check=True)
         else:
             raise YAMLNotExist(yaml)
 
@@ -244,7 +269,6 @@ class OC(SSH):
         This method login to the cluster
         :return:
         """
-
         try:
             if self.__kubeadmin_password and self.__kubeadmin_password != '':
                 self.run(f'oc login -u kubeadmin -p {self.__kubeadmin_password}', is_check=True)
@@ -690,188 +714,6 @@ class OC(SSH):
             current_wait_time += OC.SLEEP_TIME
         raise PodNotReadyTimeout(pod_name)
 
-    def __get_num_active_nodes(self):
-        """
-        This method return the number of active nodes
-        :return:
-        """
-        # count the number of active master/worker nodes
-        if self.get_worker_nodes():
-            count_nodes = len(self.get_worker_nodes().split())
-        else:
-            count_nodes = len(self.get_master_nodes().split())
-        return count_nodes
-
-    @typechecked
-    @logger_time_stamp
-    def wait_for_ocp_resource_create(self, resource: str, verify_cmd: str, status: str = '', count_local_storage: bool = False, count_openshift_storage: bool = False, kata_worker_machine_count: bool = False, timeout: int = int(environment_variables.environment_variables_dict['timeout'])):
-        """
-        This method is wait till operator is created or throw exception after timeout
-        :param resource: The resource cnv, local storage, ocs, kata
-        :param verify_cmd: Verify command that resource was created successfully
-        :param status: The final success status
-        :param count_local_storage: count local storage disks
-        :param count_openshift_storage: count openshift storage disks
-        :param kata_worker_machine_count: count kata worker machine
-        :return: True if met the result
-        """
-        current_wait_time = 0
-        while current_wait_time <= timeout:
-            # Count openshift-storage/ pv
-            if count_openshift_storage:
-                if int(self.run(verify_cmd)) == self.__get_num_active_nodes() * int(environment_variables.environment_variables_dict['num_ocs_disk']):
-                    return True
-                # Count local storage disks (worker/master * (discovery+manager)
-            elif count_local_storage:
-                if int(self.run(verify_cmd)) == self.__get_num_active_nodes() * 2:
-                    return True
-                # Count worker machines
-            elif kata_worker_machine_count:
-                if int(self.run(verify_cmd)) > 0:
-                    return True
-                else:
-                    return False
-            # verify query return positive result
-            if status:
-                if self.run(verify_cmd) == status:
-                    return True
-            else:
-                if self.run(verify_cmd) != '':
-                    return True
-            # sleep for x seconds
-            time.sleep(OC.SLEEP_TIME)
-            current_wait_time += OC.SLEEP_TIME
-        raise OCPResourceNotCreateTimeout(resource)
-
-    @typechecked
-    @logger_time_stamp
-    def create_cnv(self, path: str, resource_list: list):
-        """
-        This method create cnv resource
-        :param path:path of resource files
-        :param resource_list: cnv resource lists
-        :return:
-        """
-        for resource in resource_list:
-            logger.info(f'run {resource}')
-            self._create_async(yaml=os.path.join(path, resource))
-            # for first script wait for virt-operator
-            if '01_subscription.yaml' in resource:
-                # Wait that cnv operator will be created
-                self.wait_for_ocp_resource_create(resource='cnv',
-                                                  verify_cmd='oc -n openshift-cnv wait deployment/virt-operator --for=condition=Available',
-                                                  status='deployment.apps/virt-operator condition met')
-            # for second script wait for refresh status
-            else:
-                time.sleep(10)
-            # Wait that till succeeded
-            self.wait_for_ocp_resource_create(resource='cnv',
-                                              verify_cmd="oc get csv -n openshift-cnv -ojsonpath='{.items[0].status.phase}'",
-                                              status='Succeeded')
-        return True
-
-    @typechecked
-    @logger_time_stamp
-    def create_local_storage(self, path: str, resource_list: list):
-        """
-        This method create local storage
-        :param path:path of resource files
-        :param resource_list: local storage resource lists
-        :return:
-        """
-        for resource in resource_list:
-            logger.info(f'run {resource}')
-            self._create_async(yaml=os.path.join(path, resource))
-        # verify once after create all resource files
-        self.wait_for_ocp_resource_create(resource='local_storage',
-                                          verify_cmd="oc -n openshift-local-storage wait deployment/local-storage-operator --for=condition=Available",
-                                          status='deployment.apps/local-storage-operator condition met')
-        return True
-
-    @typechecked
-    @logger_time_stamp
-    def create_ocs(self, path: str, resource_list: list, ibm_blk_disk_name: list):
-        """
-        This method create ocs
-        :param ibm_blk_disk_name: ibm ocs disk blk name
-        :param path:path of resource files
-        :param resource_list: ocs resource lists
-        :return:
-        """
-        for resource in resource_list:
-            logger.info(f'run {resource}')
-            if resource.endswith('.sh'):
-                # build sgdisks path dynamically
-                if '01_sgdisks.sh' == resource:
-                    sgdisks_cmd = ''
-                    for disk_name in ibm_blk_disk_name:
-                        sgdisks_cmd += f'sgdisk --zap-all /dev/{disk_name};'
-                    self.run(cmd=f'chmod +x {os.path.join(path, resource)}; {path}/./{resource} "{sgdisks_cmd}"')
-                else:
-                    self.run(cmd=f'chmod +x {os.path.join(path, resource)}; {path}/./{resource}')
-            else:  # yaml
-                self._create_async(yaml=os.path.join(path, resource))
-                if '04_local_volume_set.yaml' in resource:
-                    # openshift local storage
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd=r"""oc get pod -n openshift-local-storage -o jsonpath="{range .items[*]}{.metadata.name}{'\n'}{end}" | grep diskmaker""")
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd=r"""oc get pod -n openshift-local-storage -o jsonpath="{range .items[*]}{.metadata.name}{'\n'}{end}" | grep diskmaker | wc -l""", count_local_storage=True)
-                    # openshift persistence volume (pv)
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd=r"""oc get pv -o jsonpath="{range .items[*]}{.metadata.name}{'\n'}{end}" | grep local""")
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd=r"""oc get pv -o jsonpath="{range .items[*]}{.metadata.name}{'\n'}{end}" | grep local | wc -l""",
-                                                      count_openshift_storage=True)
-                elif '07_subscription.yaml' in resource:
-                    # wait till ocs operator installed
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd="oc -n openshift-storage wait deployment/ocs-operator --for=condition=Available",
-                                                      status='deployment.apps/ocs-operator condition met')
-                elif '08_storage_cluster.yaml' in resource:
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd=r"""oc get pod -n openshift-storage | grep osd | grep -v prepare""")
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd="oc get csv -n openshift-storage -ojsonpath='{.items[0].status.phase}'",
-                                                      status='Succeeded')
-                    self.wait_for_ocp_resource_create(resource='ocs',
-                                                      verify_cmd='oc get pod -n openshift-storage | grep osd | grep -v prepare | wc -l',
-                                                      count_openshift_storage=True)
-        return True
-
-    @typechecked
-    @logger_time_stamp
-    def create_kata(self, path: str, resource_list: list):
-        """
-        This method create kata resource
-        :param path:path of resource files
-        :param resource_list: kata resource lists
-        :return:
-        """
-        for resource in resource_list:
-            logger.info(f'run {resource}')
-            if resource.endswith('.yaml'):
-                self._create_async(yaml=os.path.join(path, resource))
-                # for first script wait for virt-operator
-                if '01_operator.yaml' == resource:
-                    # Wait that cnv operator will be created
-                    self.wait_for_ocp_resource_create(resource='kata',
-                                                      verify_cmd='oc -n openshift-sandboxed-containers-operator wait deployment/sandboxed-containers-operator-controller-manager --for=condition=Available',
-                                                      status='deployment.apps/sandboxed-containers-operator-controller-manager condition met')
-                # for second script wait for kataconfig installation to no longer be in progress
-                elif '02_config.yaml' == resource:
-                    self.wait_for_ocp_resource_create(resource='kata',
-                                                      verify_cmd="oc get kataconfig -ojsonpath='{.items[0].status.installationStatus.IsInProgress}'",
-                                                      status='false')
-                    total_nodes_count = self.run(cmd="oc get kataconfig -ojsonpath='{.items[0].status.total_nodes_count}'")
-                    completed_nodes_count = self.run(cmd="oc get kataconfig -ojsonpath='{.items[0].status.installationStatus.completed.completed_nodes_count}'")
-                    if total_nodes_count != completed_nodes_count:
-                        raise KataInstallationFailed(f'not all nodes installed successfully total {total_nodes_count} != completed {completed_nodes_count}')
-            else:
-                if '03_ocp48_patch.sh' == resource:
-                    self.run(cmd=f'chmod +x {os.path.join(path, resource)}; {path}/./{resource}')
-        return True
-
     @logger_time_stamp
     def wait_for_vm_log_completed(self, vm_name: str = '', end_stamp: str = '', output_filename: str = '', timeout: int = int(environment_variables.environment_variables_dict['timeout']), sleep_time: int = 30):
         """
@@ -909,6 +751,8 @@ class OC(SSH):
         :param output_filename:
         :return:
         """
+        data_index = 1
+        title_index = 2
         if not output_filename:
             output_filename = os.path.join(self.__run_artifacts, vm_name)
         results_list = []
@@ -917,11 +761,17 @@ class OC(SSH):
             for line in infile:
                 if start_stamp in line:
                     copy = True
-                    results_list.append(line.strip().split(':')[2:])
                     continue
                 elif end_stamp in line:
                     copy = False
                     continue
                 elif copy:
-                    results_list.append(line.strip().split(':')[1:])
+                    # Strip line prefix from VM output
+                    if 'cloud-init' in line:
+                        if vm_name in line:
+                            # filter the title, placed after the second :
+                            results_list.append(line.strip().split(':')[title_index:])
+                        else:
+                            # filter the data, placed after the first :
+                            results_list.append(line.strip().split(':')[data_index:])
         return results_list

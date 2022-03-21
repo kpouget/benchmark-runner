@@ -13,6 +13,22 @@ class EnvironmentVariables:
 
         self._environment_variables_dict = {}
 
+        # env files override true ENV. Not best order, but easier to write :/
+        # .env.generated can be auto-generated (by an external tool) based on the local cluster's configuration.
+
+        for env in ".env", ".env.generated":
+            try:
+                with open(env) as f:
+                    for line in f.readlines():
+                        key, found , value = line.strip().partition("=")
+                        if not found:
+                            print("ERROR: invalid line in {env}: {line.strip()}")
+                            continue
+                        if key in os.environ: continue # prefer env to env file
+                        os.environ[key] = value
+
+            except FileNotFoundError: pass # ignore
+
         ##################################################################################################
         # dynamic parameters - configure for local run
         # parameters for running workload
@@ -37,6 +53,10 @@ class EnvironmentVariables:
         self._environment_variables_dict['elasticsearch_user'] = os.environ.get('ELASTICSEARCH_USER', '')
         self._environment_variables_dict['elasticsearch_password'] = os.environ.get('ELASTICSEARCH_PASSWORD', '')
 
+        # Workaround for Kata CPU offline problem in 4.9/4.10
+        # Set to True to
+        self._environment_variables_dict['kata_cpuoffline_workaround'] = os.environ.get('KATA_CPUOFFLINE_WORKAROUND', '')
+
         # default parameter - change only if needed
         # Parameters below related to 'run_workload()'
         self._environment_variables_dict['workloads'] = ['stressng_pod', 'stressng_vm', 'stressng_kata',
@@ -44,7 +64,7 @@ class EnvironmentVariables:
                                                          'hammerdb_pod_mariadb', 'hammerdb_vm_mariadb', 'hammerdb_kata_mariadb',
                                                          'hammerdb_pod_postgres', 'hammerdb_vm_postgres', 'hammerdb_kata_postgres',
                                                          'hammerdb_pod_mssql', 'hammerdb_vm_mssql', 'hammerdb_kata_mssql',
-                                                         'vdbench_pod', 'vdbench_kata', 'vdbench_vm']
+                                                         'vdbench_pod', 'vdbench_kata', 'vdbench_vm', 'mpi_pod']
         # benchmark-operator workload types
         self._environment_variables_dict['workload_namespaces'] = {
             'stressng': 'benchmark-operator',
@@ -55,17 +75,19 @@ class EnvironmentVariables:
 
         # Choose default namespace
         base_workload = self._environment_variables_dict['workload'].split('_')[0]
-        if base_workload in self._environment_variables_dict['workload_namespaces']:
+        if os.environ.get('NAMESPACE'):
+            self._environment_variables_dict['namespace'] = os.environ.get('NAMESPACE')
+        elif base_workload in self._environment_variables_dict['workload_namespaces']:
             default_namespace = self._environment_variables_dict['workload_namespaces'][base_workload]
             self._environment_variables_dict['namespace'] = os.environ.get('NAMESPACE', default_namespace)
         else:
             # TBD if this is not set
             self._environment_variables_dict['namespace'] = 'benchmark-operator'
 
-        # run workload with ocs pvc True/False. True=OCS, False=Ephemeral
-        self._environment_variables_dict['ocs_pvc'] = os.environ.get('OCS_PVC', 'True')
-        # Workloads that required OCS
-        self._environment_variables_dict['workloads_ocs_pvc'] = ['vdbench', 'hammerdb']
+        # run workload with odf pvc True/False. True=ODF, False=Ephemeral
+        self._environment_variables_dict['odf_pvc'] = os.environ.get('ODF_PVC', 'True')
+        # Workloads that required ODF
+        self._environment_variables_dict['workloads_odf_pvc'] = ['vdbench', 'hammerdb']
         # This parameter get from Test_CI.yml file
         self._environment_variables_dict['build_version'] = os.environ.get('BUILD_VERSION', '1.0.0')
         # collect system metrics True/False
@@ -84,11 +106,22 @@ class EnvironmentVariables:
         self._environment_variables_dict['date_key'] = datetime.datetime.now().strftime("%Y/%m/%d")
         self._environment_variables_dict['time_stamp_format'] = os.path.join(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S'))
         # Benchmark runner local run artifacts path with time stamp format
-        self._environment_variables_dict['run_artifacts_path'] = os.path.join(self._environment_variables_dict['run_artifacts'], f"{self._environment_variables_dict['workload'].replace('_', '-')}-{self._environment_variables_dict['time_stamp_format']}")
+
+        self._environment_variables_dict['run_artifacts_path'] = os.environ.get('RUN_ARTIFACTS_PATH')
+        if not self._environment_variables_dict['run_artifacts_path']:
+            self._environment_variables_dict['run_artifacts_path'] = os.path.join(self._environment_variables_dict['run_artifacts'], f"{self._environment_variables_dict['workload'].replace('_', '-')}-{self._environment_variables_dict['time_stamp_format']}")
+
         # None(Default)/ 'True' to save local(/tmp) artifacts files
         self._environment_variables_dict['save_artifacts_local'] = os.environ.get('SAVE_ARTIFACTS_LOCAL', None)
         # None/ 'True'(Default) to enable prometheus snapshot
         self._environment_variables_dict['enable_prometheus_snapshot'] = os.environ.get('ENABLE_PROMETHEUS_SNAPSHOT', 'True')
+
+        self._environment_variables_dict['runner_type'] = os.environ.get('RUNNER_TYPE')
+
+        self._environment_variables_dict['config_from_args'] = os.environ.get('CONFIG_FROM_ARGS')
+
+        self._environment_variables_dict['template_in_workload_dir'] = os.environ.get('TEMPLATE_IN_WORKLOAD_DIR')
+
         # end dynamic parameters - configure for local run
         ##################################################################################################
 
@@ -116,7 +149,7 @@ class EnvironmentVariables:
         self._environment_variables_dict['key'] = os.environ.get('IBM_KEY', '')
 
         # Parameters below related to 'install_ocp()'
-        # MANDATORY for OCP install: install ocp version - insert version to install i.e. 'latest-4.8'
+        # MANDATORY for OCP install: install ocp version - insert version to install i.e. 'latest-4.8' : https://mirror.openshift.com/pub/openshift-v4/clients/ocp
         self._environment_variables_dict['install_ocp_version'] = os.environ.get('INSTALL_OCP_VERSION', '')
         # There are 2 steps run_ibm_ocp_ipi_installer/verify_install_complete
         self._environment_variables_dict['install_step'] = os.environ.get('INSTALL_STEP', '')
@@ -130,10 +163,14 @@ class EnvironmentVariables:
         self._environment_variables_dict['install_ocp_resources'] = os.environ.get('INSTALL_OCP_RESOURCES', '')
         # cnv version
         self._environment_variables_dict['cnv_version'] = os.environ.get('CNV_VERSION', '')
-        # ocs version
-        self._environment_variables_dict['ocs_version'] = os.environ.get('OCS_VERSION', '')
-        # number of ocs disk
-        self._environment_variables_dict['num_ocs_disk'] = os.environ.get('NUM_OCS_DISK', 1)
+        # QUAY_USERNAME for nightly build
+        self._environment_variables_dict['quay_username'] = os.environ.get('QUAY_USERNAME', '')
+        # QUAY_PASSWORD for nightly build
+        self._environment_variables_dict['quay_password'] = os.environ.get('QUAY_PASSWORD', '')
+        # odf version
+        self._environment_variables_dict['odf_version'] = os.environ.get('ODF_VERSION', '')
+        # number fo odf disk from ['sdb', 'sdc', 'sdd', 'sde']
+        self._environment_variables_dict['num_odf_disk'] = os.environ.get('NUM_ODF_DISK', 1)
         # install resources list
         self._environment_variables_dict['install_resources_list'] = os.environ.get('INSTALL_RESOURCES_LIST', '')
 

@@ -31,6 +31,10 @@ spec:
       labels:
         app: postgres
         type: postgres-database-server
+      {%- if kind == 'kata' and kata_cpuoffline_workaround == True %}
+      annotations:
+        io.katacontainers.config.hypervisor.default_vcpus: "{{ database_limits_cpu }}"
+      {%- endif %}
     spec:
       nodeSelector:
         kubernetes.io/hostname: "{{ pin_node2 }}"
@@ -49,7 +53,9 @@ spec:
               cpu: {{ database_requests_cpu }}
               memory: {{ database_requests_memory }}
             limits:
+            {%- if kind != 'kata' or kata_cpuoffline_workaround != True %}
               cpu: {{ database_limits_cpu }}
+              {%- endif %}
               memory: {{ database_limits_memory }}
           env:
             - name: POSTGRESQL_USER
@@ -64,7 +70,7 @@ spec:
             - name: postgres-custom-config
               mountPath: /var/lib/pgsql/data/pg_hba.conf
               subPath: custom.pg_hba.conf #should be the name used in the ConfigMap
-          {%- if ocs_pvc == True %}
+          {%- if odf_pvc == True %}
             - name: postgres-persistent-storage
               mountPath: /var/lib/pgsql/data
               readOnly: false
@@ -73,7 +79,7 @@ spec:
         - name: postgres-custom-config
           configMap:
             name: postgres-custom-config
-        {%- if ocs_pvc == True %}
+        {%- if odf_pvc == True %}
         - name: postgres-persistent-storage
           persistentVolumeClaim:
             claimName: postgres-persistent-storage

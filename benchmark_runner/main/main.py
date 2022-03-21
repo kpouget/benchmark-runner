@@ -1,4 +1,4 @@
-
+import sys
 import ast  # change string list to list
 
 from benchmark_runner.main.environment_variables import *
@@ -18,6 +18,8 @@ logger.setLevel(level=log_level)
 # python -m venv venv
 # . venv/bin/activate
 
+SYSTEM_EXIT_BENCHMARK_FAILED = 1
+SYSTEM_EXIT_UNKNOWN_EXECUTION_TYPE = 2
 
 @logger_time_stamp
 def main():
@@ -35,6 +37,9 @@ def main():
     install_ocp_version = environment_variables_dict.get('install_ocp_version', '')
     install_ocp_resources = environment_variables_dict.get('install_ocp_resources', '')
     run_type = environment_variables_dict.get('run_type', '')
+
+    is_benchmark_operator_workload = 'benchmark-operator' in (environment_variables.get_workload_namespace(workload), environment_variables_dict.get("runner_type"))
+    is_benchmark_runner_workload = 'benchmark-runner' in (environment_variables.get_workload_namespace(workload), environment_variables_dict.get("runner_type"))
     # workload name validation
     if workload and not ci_status:
         if workload not in environment_variables.workloads_list:
@@ -44,9 +49,9 @@ def main():
         if run_type not in environment_variables.run_types_list:
             logger.info(f'Enter valid run type {environment_variables.run_types_list}')
             raise Exception(f'Invalid run type: {run_type} \n, choose one from the list: {environment_variables.run_types_list}')
-        if environment_variables.get_workload_namespace(workload) == 'benchmark-operator':
+        if is_benchmark_operator_workload:
             benchmark_operator_workload = BenchmarkOperatorWorkloads()
-        elif environment_variables.get_workload_namespace(workload) == 'benchmark-runner':
+        elif is_benchmark_runner_workload:
             benchmark_runner_workload = Workloads()
 
     @logger_time_stamp
@@ -100,7 +105,7 @@ def main():
         ibm_oc_operations.ibm_connect()
         oc = ibm_oc_operations.oc_login()
         ibm_oc_operations.verify_cluster_is_up(oc)
-        # ibm_blk_disk_name for ocs install
+        # ibm_blk_disk_name for odf install
         ibm_oc_operations.install_ocp_resources(resources=resources, ibm_blk_disk_name=ibm_oc_operations.get_ibm_disks_blk_name())
         ibm_oc_operations.ibm_disconnect()
         logger.info(f'End IBM OCP resources installation')
@@ -137,7 +142,7 @@ def main():
         :return:
         """
         # benchmark-operator node selector
-        benchmark_runner_workload.run()
+        return benchmark_runner_workload.run()
 
     # azure_cluster_start_stop
     if azure_cluster_stop or azure_cluster_start:
@@ -151,11 +156,15 @@ def main():
         install_resources()
     elif ci_status == 'pass' or ci_status == 'failed':
         update_ci_status()
-    elif environment_variables.get_workload_namespace(workload) == 'benchmark-operator':
+    elif is_benchmark_operator_workload:
         run_benchmark_operator_workload()
-    elif environment_variables.get_workload_namespace(workload) == 'benchmark-runner':
-        run_benchmark_runner_workload()
 
+    elif is_benchmark_runner_workload:
+        success = run_benchmark_runner_workload()
+        if not success:
+            raise SystemExit(SYSTEM_EXIT_BENCHMARK_FAILED)
+    else:
+        logger.error("ERROR: could not determine the type of execution.")
+        raise SystemExit(SYSTEM_EXIT_UNKNOWN_EXECUTION_TYPE)
 
 main()
-

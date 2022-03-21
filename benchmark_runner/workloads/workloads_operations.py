@@ -6,7 +6,7 @@ import shutil
 from csv import DictReader
 
 from benchmark_runner.common.logger.logger_time_stamp import logger_time_stamp
-from benchmark_runner.workloads.workloads_exceptions import OCSNonInstalled
+from benchmark_runner.workloads.workloads_exceptions import ODFNonInstalled
 from benchmark_runner.common.oc.oc import OC
 from benchmark_runner.common.elasticsearch.elasticsearch_operations import ElasticSearchOperations
 from benchmark_runner.main.environment_variables import environment_variables
@@ -18,6 +18,7 @@ from benchmark_runner.common.clouds.IBM.ibm_operations import IBMOperations
 
 
 class WorkloadsOperations:
+    oc = None
     """
     This class run workloads
     """
@@ -26,8 +27,8 @@ class WorkloadsOperations:
         self._environment_variables_dict = environment_variables.environment_variables_dict
         self._workload = self._environment_variables_dict.get('workload', '')
         self._build_version = self._environment_variables_dict.get('build_version', '')
-        self._workloads_ocs_pvc = list(self._environment_variables_dict.get('workloads_ocs_pvc', ''))
-        self._ocs_pvc = self._environment_variables_dict.get('ocs_pvc', '')
+        self._workloads_odf_pvc = list(self._environment_variables_dict.get('workloads_odf_pvc', ''))
+        self._odf_pvc = self._environment_variables_dict.get('odf_pvc', '')
         self._kubeadmin_password = self._environment_variables_dict.get('kubeadmin_password', '')
         self._run_type = self._environment_variables_dict.get('run_type', '')
         self._trunc_uuid = self._environment_variables_dict.get('trunc_uuid', '')
@@ -57,7 +58,11 @@ class WorkloadsOperations:
         # Generate templates class
         self._template = TemplateOperations(workload=self._workload)
         # set oc login
-        self._oc = self.set_login(kubeadmin_password=self._kubeadmin_password)
+
+        if WorkloadsOperations.oc is None:
+            WorkloadsOperations.oc = self.set_login(kubeadmin_password=self._kubeadmin_password)
+        self._oc = WorkloadsOperations.oc
+
         # PrometheusSnapshot
         if self._enable_prometheus_snapshot:
             self._snapshot = PrometheusSnapshot(oc=self._oc, artifacts_path=self._run_artifacts_path, verbose=True)
@@ -79,12 +84,12 @@ class WorkloadsOperations:
         :return:
         """
         self._oc.delete_all_resources(resources=['vm', 'pods', 'pvc'])
-    
+
     @logger_time_stamp
     def start_prometheus(self):
         """
         This method start collection of Prometheus snapshot
-        :return: 
+        :return:
         """
         if self._enable_prometheus_snapshot:
             try:
@@ -93,12 +98,12 @@ class WorkloadsOperations:
                 raise PrometheusSnapshotError(err)
             except Exception as err:
                 raise err
-    
+
     @logger_time_stamp
     def end_prometheus(self):
         """
         This method retrieve the Prometheus snapshot
-        :return: 
+        :return:
         """
         if self._enable_prometheus_snapshot:
             try:
@@ -107,17 +112,17 @@ class WorkloadsOperations:
                 raise PrometheusSnapshotError(err)
             except Exception as err:
                 raise err
-            
+
     @logger_time_stamp
-    def ocs_pvc_verification(self):
+    def odf_pvc_verification(self):
         """
-        This method verified if ocs or pvc is required for workload, raise error in case of missing ocs
+        This method verified if odf or pvc is required for workload, raise error in case of missing odf
         :return:
         """
         workload_name = self._workload.split('_')
-        if self._ocs_pvc == 'True' and workload_name[0] in self._workloads_ocs_pvc:
-            if not self._oc.is_ocs_installed():
-                raise OCSNonInstalled()
+        if self._odf_pvc == 'True' and workload_name[0] in self._workloads_odf_pvc:
+            if not self._oc.is_odf_installed():
+                raise ODFNonInstalled()
 
     def _create_vm_log(self, labels: list) -> str:
         """
@@ -209,7 +214,8 @@ class WorkloadsOperations:
         csv_result_file = os.path.join(self._run_artifacts_path, 'vdbench_vm_result.csv')
         with open(csv_result_file, 'w') as out:
             for row in results_list:
-                out.write(f'{row[0].strip()}\n')
+                if row:
+                    out.write(f'{row[0].strip()}\n')
         # csv to dictionary
         the_reader = DictReader(open(csv_result_file, 'r'))
         for line_dict in the_reader:
@@ -273,10 +279,10 @@ class WorkloadsOperations:
         metadata = {'ocp_version': self._oc.get_ocp_server_version(),
                     'cnv_version': self._oc.get_cnv_version(),
                     'kata_version': self._oc.get_kata_version(),
-                    'ocs_version': self._oc.get_ocs_version(),
+                    'odf_version': self._oc.get_odf_version(),
                     'runner_version': self._build_version,
                     'version': int(self._build_version.split('.')[-1]),
-                    'vm_os_version': 'centos8',
+                    'vm_os_version': 'centos-stream8',
                     'ci_date': datetime.datetime.now().strftime(date_format),
                     'uuid': self._uuid,
                     'pin_node1': self._pin_node1,
@@ -338,18 +344,18 @@ class WorkloadsOperations:
 
     def initialize_workload(self):
         """
-        This method includes all the initialization of workload 
-        :return: 
+        This method includes all the initialization of workload
+        :return:
         """
         self.delete_all()
-        self.ocs_pvc_verification()
+        self.odf_pvc_verification()
         self._template.generate_yamls()
         self.start_prometheus()
-        
+
     def finalize_workload(self):
         """
-        This method includes all the finalization of workload 
-        :return: 
+        This method includes all the finalization of workload
+        :return:
         """
         self.end_prometheus()
         self.upload_run_artifacts_to_s3()
